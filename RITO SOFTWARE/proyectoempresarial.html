@@ -1,0 +1,1553 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión Empresarial</title>
+    <!-- CDN de React -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- CDN de Babel para transpilar JSX en el navegador -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- CDN de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Font - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { 
+            getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where 
+        } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+ // Globalizar las funciones y variables de Firebase para que el script de Babel las vea
+        window.firebase = {
+            initializeApp,
+            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where
+        };
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Ajuste para tablas en móviles */
+        .overflow-x-auto table {
+            min-width: 600px; /* Asegura que la tabla no se colapse demasiado en móviles */
+        }
+        .break-all {
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // Importar React y ReactDOM del ámbito global
+        const { useState, useEffect, createContext, useContext } = React;
+        const { createRoot } = ReactDOM; // Usar createRoot para React 18
+
+        // Acceder a las funciones de Firebase globalizadas
+        const {
+            initializeApp,
+            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where
+        } = window.firebase;
+
+        // Contexto para Firebase y Autenticación
+        const FirebaseContext = createContext(null);
+
+        // Componente para el Spinner de Carga
+        const LoadingSpinner = () => (
+          <div className="flex justify-center items-center h-full min-h-screen">
+            <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
+          </div>
+        );
+
+        // Componente Modal personalizado (reemplaza alert/confirm)
+        const Modal = ({ show, title, message, onConfirm, onCancel, children }) => {
+          if (!show) return null;
+
+          return (
+            <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex justify-center items-center z-50 p-4">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-auto transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <h3 className="text-2xl font-bold text-gray-900 mb-4 border-b pb-2">{title}</h3>
+                {message && <p className="text-gray-700 mb-6">{message}</p>}
+                {children} {/* Permite contenido personalizado dentro del modal */}
+                <div className="mt-6 flex justify-end space-x-3">
+                  {onCancel && (
+                    <button
+                      onClick={onCancel}
+                      className="px-5 py-2 border border-gray-300 rounded-md text-gray-700 text-lg font-medium hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                  {onConfirm && (
+                    <button
+                      onClick={onConfirm}
+                      className="px-5 py-2 bg-blue-600 text-white rounded-md text-lg font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      Confirmar
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        // Componente principal de la aplicación
+        const App = () => {
+          const [db, setDb] = useState(null);
+          const [auth, setAuth] = useState(null);
+          const [userId, setUserId] = useState(null);
+          const [loadingFirebase, setLoadingFirebase] = useState(true);
+          const [currentPage, setCurrentPage] = useState('dashboard'); // Estado para la navegación
+          const [showModal, setShowModal] = useState(false);
+          const [modalContent, setModalContent] = useState({});
+
+          useEffect(() => {
+            // Inicialización de Firebase
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+
+            try {
+              const app = initializeApp(firebaseConfig);
+              const firestore = getFirestore(app);
+              const firebaseAuth = getAuth(app);
+
+              setDb(firestore);
+              setAuth(firebaseAuth);
+
+              // Autenticación
+              const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
+                if (user) {
+                  setUserId(user.uid);
+                  setLoadingFirebase(false);
+                } else {
+                  // Si no hay usuario, intentar iniciar sesión con token o de forma anónima
+                  try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                      await signInWithCustomToken(firebaseAuth, __initial_auth_token);
+                    } else {
+                      await signInAnonymously(firebaseAuth);
+                    }
+                  } catch (authError) {
+                    console.error("Error durante la autenticación:", authError);
+                    setLoadingFirebase(false); // Detener carga incluso si hay error de autenticación
+                  }
+                }
+              });
+
+              return () => unsubscribe(); // Limpiar el listener al desmontar
+            } catch (error) {
+              console.error("Error al inicializar Firebase:", error);
+              setLoadingFirebase(false);
+            }
+          }, []);
+
+          // Función para mostrar el modal de confirmación
+          const showConfirmModal = (title, message, onConfirm) => {
+            setModalContent({
+              title,
+              message,
+              onConfirm: () => {
+                onConfirm();
+                setShowModal(false);
+              },
+              onCancel: () => setShowModal(false),
+            });
+            setShowModal(true);
+          };
+
+          // Función para mostrar el modal de alerta/información
+          const showAlertModal = (title, message) => {
+            setModalContent({
+              title,
+              message,
+              onConfirm: () => setShowModal(false),
+              onCancel: null, // No hay botón de cancelar para alertas
+            });
+            setShowModal(true);
+          };
+
+          if (loadingFirebase || !db || !auth) {
+            return <LoadingSpinner />;
+          }
+
+          const contextValue = {
+            db,
+            auth,
+            userId,
+            appId: typeof __app_id !== 'undefined' ? __app_id : 'default-app-id',
+            showConfirmModal,
+            showAlertModal,
+          };
+
+          return (
+            <FirebaseContext.Provider value={contextValue}>
+              <div className="min-h-screen bg-gray-50 flex flex-col font-inter">
+                {/* Barra de Navegación */}
+                <nav className="bg-indigo-700 p-4 shadow-md text-white flex justify-between items-center flex-wrap">
+                  <div className="text-2xl font-bold rounded-md">Sistema Empresarial</div>
+                  <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 mt-2 sm:mt-0">
+                    <NavItem onClick={() => setCurrentPage('dashboard')} active={currentPage === 'dashboard'}>Dashboard</NavItem>
+                    <NavItem onClick={() => setCurrentPage('units')} active={currentPage === 'units'}>Unidades</NavItem>
+                    <NavItem onClick={() => setCurrentPage('cameras')} active={currentPage === 'cameras'}>Cámaras</NavItem>
+                    <NavItem onClick={() => setCurrentPage('files')} active={currentPage === 'files'}>Archivos</NavItem>
+                    <NavItem onClick={() => setCurrentPage('faults')} active={currentPage === 'faults'}>Fallas</NavItem>
+                  </div>
+                  <div className="mt-2 sm:mt-0 text-sm text-indigo-100 rounded-md">
+                    Usuario: <span className="font-semibold break-all">{userId}</span>
+                  </div>
+                </nav>
+
+                {/* Contenido Principal */}
+                <main className="flex-grow p-6">
+                  {currentPage === 'dashboard' && <Dashboard />}
+                  {currentPage === 'units' && <UnitsPage />}
+                  {currentPage === 'cameras' && <CamerasPage />}
+                  {currentPage === 'files' && <FilesPage />}
+                  {currentPage === 'faults' && <FaultsPage />}
+                </main>
+
+                {/* Pie de página */}
+                <footer className="bg-gray-800 text-white p-4 text-center text-sm rounded-t-lg">
+                  &copy; 2024 Sistema Empresarial. Todos los derechos reservados.
+                </footer>
+
+                {/* Modal Global */}
+                <Modal
+                  show={showModal}
+                  title={modalContent.title}
+                  message={modalContent.message}
+                  onConfirm={modalContent.onConfirm}
+                  onCancel={modalContent.onCancel}
+                >
+                  {modalContent.children}
+                </Modal>
+              </div>
+            </FirebaseContext.Provider>
+          );
+        };
+
+        // Componente de Elemento de Navegación
+        const NavItem = ({ onClick, active, children }) => (
+          <button
+            onClick={onClick}
+            className={`px-4 py-2 rounded-md transition-colors duration-200 ${
+              active ? 'bg-indigo-800 text-white shadow-inner' : 'hover:bg-indigo-600 text-indigo-100'
+            } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 text-lg`}
+          >
+            {children}
+          </button>
+        );
+
+        // --- Componentes de Página ---
+
+        // Componente de Dashboard
+        const Dashboard = () => {
+          const { db, appId } = useContext(FirebaseContext);
+          const [unitsCount, setUnitsCount] = useState(0);
+          const [camerasCount, setCamerasCount] = useState(0);
+          const [activeCamerasCount, setActiveCamerasCount] = useState(0);
+          const [faultsCount, setFaultsCount] = useState(0);
+          const [recentFaults, setRecentFaults] = useState([]);
+          const [loading, setLoading] = useState(true);
+
+          useEffect(() => {
+            if (!db) return;
+
+            setLoading(true);
+
+            const unitsColRef = collection(db, `artifacts/${appId}/public/data/units`);
+            const camerasColRef = collection(db, `artifacts/${appId}/public/data/cameras`);
+            const faultsColRef = collection(db, `artifacts/${appId}/public/data/faults`);
+
+            const unsubscribeUnits = onSnapshot(unitsColRef, (snapshot) => {
+              setUnitsCount(snapshot.size);
+            });
+
+            const unsubscribeCameras = onSnapshot(camerasColRef, (snapshot) => {
+              const cameras = snapshot.docs.map(doc => doc.data());
+              setCamerasCount(cameras.length);
+              setActiveCamerasCount(cameras.filter(cam => cam.status === 'Active').length);
+            });
+
+            const unsubscribeFaults = onSnapshot(faultsColRef, (snapshot) => {
+              const faults = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              setFaultsCount(faults.length);
+              // Ordenar por fecha de reporte (más reciente primero) y tomar los 5 más recientes
+              const sortedFaults = faults.sort((a, b) => {
+                const dateA = a.reportedAt && typeof a.reportedAt.toDate === 'function' ? a.reportedAt.toDate() : new Date(0);
+                const dateB = b.reportedAt && typeof b.reportedAt.toDate === 'function' ? b.reportedAt.toDate() : new Date(0);
+                return dateB - dateA;
+              }).slice(0, 5);
+              setRecentFaults(sortedFaults);
+            });
+
+            setLoading(false);
+
+            return () => {
+              unsubscribeUnits();
+              unsubscribeCameras();
+              unsubscribeFaults();
+            };
+          }, [db, appId]);
+
+          if (loading) return <LoadingSpinner />;
+
+          return (
+            <div className="container mx-auto p-4 md:p-6">
+              <h2 className="text-4xl font-bold text-gray-900 mb-8 text-center">Dashboard General</h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+                <StatCard title="Unidades Empresariales" value={unitsCount} color="bg-blue-500" />
+                <StatCard title="Total Cámaras" value={camerasCount} color="bg-green-500" />
+                <StatCard title="Cámaras Activas" value={activeCamerasCount} color="bg-teal-500" />
+                <StatCard title="Fallas Reportadas" value={faultsCount} color="bg-red-500" />
+              </div>
+
+              <div className="bg-white rounded-lg shadow-xl p-6 md:p-8">
+                <h3 className="text-3xl font-semibold text-gray-800 mb-6">Fallas Recientes</h3>
+                {recentFaults.length === 0 ? (
+                  <p className="text-gray-600 text-lg">No hay fallas recientes reportadas.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tl-lg">Descripción</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unidad</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Reportado El</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {recentFaults.map((fault) => (
+                          <tr key={fault.id}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{fault.description}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{fault.type}</td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                fault.status === 'Reported' ? 'bg-red-100 text-red-800' :
+                                fault.status === 'Investigating' ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-green-100 text-green-800'
+                              }`}>
+                                {fault.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{fault.unitName || 'N/A'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {fault.reportedAt && typeof fault.reportedAt.toDate === 'function' ? new Date(fault.reportedAt.toDate()).toLocaleString() : 'N/A'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        // Componente para tarjetas de estadísticas del Dashboard
+        const StatCard = ({ title, value, color }) => (
+          <div className={`${color} text-white rounded-lg shadow-md p-6 flex flex-col items-center justify-center text-center transform transition-transform duration-300 hover:scale-105`}>
+            <h3 className="text-2xl font-semibold mb-2">{title}</h3>
+            <p className="text-5xl font-extrabold">{value}</p>
+          </div>
+        );
+
+
+        // Componente de Página de Unidades
+        const UnitsPage = () => {
+          const { db, appId, showConfirmModal, showAlertModal } = useContext(FirebaseContext);
+          const [units, setUnits] = useState([]);
+          const [loading, setLoading] = useState(true);
+          const [editingUnit, setEditingUnit] = useState(null); // Para editar o añadir nueva unidad
+          const [showUnitFormModal, setShowUnitFormModal] = useState(false);
+
+          useEffect(() => {
+            if (!db) return;
+
+            setLoading(true);
+            const unitsColRef = collection(db, `artifacts/${appId}/public/data/units`);
+            const unsubscribe = onSnapshot(unitsColRef, (snapshot) => {
+              const unitsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              setUnits(unitsData);
+              setLoading(false);
+            }, (error) => {
+              console.error("Error al obtener unidades:", error);
+              showAlertModal("Error", "No se pudieron cargar las unidades.");
+              setLoading(false);
+            });
+
+            return () => unsubscribe();
+          }, [db, appId, showAlertModal]);
+
+          const handleAddEditUnit = async (unitData) => {
+            try {
+              if (editingUnit && editingUnit.id) {
+                // Editar unidad existente
+                const unitRef = doc(db, `artifacts/${appId}/public/data/units`, editingUnit.id);
+                await updateDoc(unitRef, {
+                  ...unitData,
+                  updatedAt: new Date(),
+                });
+                showAlertModal("Éxito", "Unidad actualizada correctamente.");
+              } else {
+                // Añadir nueva unidad
+                await addDoc(collection(db, `artifacts/${appId}/public/data/units`), {
+                  ...unitData,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                });
+                showAlertModal("Éxito", "Unidad agregada correctamente.");
+              }
+              setEditingUnit(null);
+              setShowUnitFormModal(false);
+            } catch (error) {
+              console.error("Error al guardar unidad:", error);
+              showAlertModal("Error", "No se pudo guardar la unidad. Inténtalo de nuevo.");
+            }
+          };
+
+          const handleDeleteUnit = (unitId) => {
+            showConfirmModal(
+              "Confirmar Eliminación",
+              "¿Estás seguro de que quieres eliminar esta unidad? Esto no eliminará sus cámaras, archivos o fallas asociadas.",
+              async () => {
+                try {
+                  await deleteDoc(doc(db, `artifacts/${appId}/public/data/units`, unitId));
+                  showAlertModal("Éxito", "Unidad eliminada correctamente.");
+                } catch (error) {
+                  console.error("Error al eliminar unidad:", error);
+                  showAlertModal("Error", "No se pudo eliminar la unidad.");
+                }
+              }
+            );
+          };
+
+          if (loading) return <LoadingSpinner />;
+
+          return (
+            <div className="container mx-auto p-4 md:p-6">
+              <div className="flex justify-between items-center mb-8">
+                <h2 className="text-4xl font-bold text-gray-900">Unidades Empresariales</h2>
+                <button
+                  onClick={() => { setEditingUnit(null); setShowUnitFormModal(true); }}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-300 text-lg"
+                >
+                  Añadir Unidad
+                </button>
+              </div>
+
+              {units.length === 0 ? (
+                <p className="text-center text-gray-600 text-xl mt-12">No hay unidades registradas. ¡Añade una!</p>
+              ) : (
+                <div className="overflow-x-auto bg-white rounded-lg shadow-xl">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tl-lg">Nombre</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contacto</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Descripción</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {units.map((unit) => (
+                        <tr key={unit.id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{unit.name}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{unit.location}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{unit.contactEmail || 'N/A'}</td>
+                          <td className="px-6 py-4 text-sm text-gray-700 max-w-xs truncate">{unit.description || 'N/A'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button
+                              onClick={() => { setEditingUnit(unit); setShowUnitFormModal(true); }}
+                              className="text-indigo-600 hover:text-indigo-900 mr-4 transition-colors duration-200"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleDeleteUnit(unit.id)}
+                              className="text-red-600 hover:text-red-900 transition-colors duration-200"
+                            >
+                              Eliminar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Formulario Modal para Añadir/Editar Unidad */}
+              <Modal
+                show={showUnitFormModal}
+                title={editingUnit ? 'Editar Unidad' : 'Añadir Nueva Unidad'}
+                onConfirm={null} // El formulario manejará su propia confirmación
+                onCancel={() => { setEditingUnit(null); setShowUnitFormModal(false); }}
+              >
+                <UnitForm unit={editingUnit} onSave={handleAddEditUnit} onCancel={() => { setEditingUnit(null); setShowUnitFormModal(false); }} />
+              </Modal>
+            </div>
+          );
+        };
+
+        // Formulario para Unidades (Usado en el Modal)
+        const UnitForm = ({ unit, onSave, onCancel }) => {
+          const [formData, setFormData] = useState({
+            name: unit?.name || '',
+            location: unit?.location || '',
+            contactEmail: unit?.contactEmail || '',
+            contactPhone: unit?.contactPhone || '',
+            description: unit?.description || '',
+          });
+          const [errors, setErrors] = useState({});
+
+          useEffect(() => {
+            if (unit) {
+              setFormData({
+                name: unit.name || '',
+                location: unit.location || '',
+                contactEmail: unit.contactEmail || '',
+                contactPhone: unit.contactPhone || '',
+                description: unit.description || '',
+              });
+            } else {
+              setFormData({ name: '', location: '', contactEmail: '', contactPhone: '', description: '' });
+            }
+          }, [unit]);
+
+          const handleChange = (e) => {
+            const { name, value } = e.target;
+            setFormData((prev) => ({ ...prev, [name]: value }));
+          };
+
+          const validate = () => {
+            const newErrors = {};
+            if (!formData.name.trim()) newErrors.name = "El nombre es obligatorio.";
+            if (!formData.location.trim()) newErrors.location = "La ubicación es obligatoria.";
+            // Validación básica de email
+            if (formData.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.contactEmail)) {
+              newErrors.contactEmail = "Email inválido.";
+            }
+            setErrors(newErrors);
+            return Object.keys(newErrors).length === 0;
+          };
+
+          const handleSubmit = (e) => {
+            e.preventDefault();
+            if (validate()) {
+              onSave(formData);
+            }
+          };
+
+          return (
+            <form onSubmit={handleSubmit} className="p-4 bg-gray-50 rounded-lg">
+              <div className="mb-4">
+                <label htmlFor="name" className="block text-gray-700 text-sm font-bold mb-2">Nombre de la Unidad*</label>
+                <input
+                  type="text"
+                  id="name"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  className={`shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.name ? 'border-red-500' : ''}`}
+                  placeholder="Ej: Sede Central"
+                />
+                {errors.name && <p className="text-red-500 text-xs italic mt-1">{errors.name}</p>}
+              </div>
+              <div className="mb-4">
+                <label htmlFor="location" className="block text-gray-700 text-sm font-bold mb-2">Ubicación*</label>
+                <input
+                  type="text"
+                  id="location"
+                  name="location"
+                  value={formData.location}
+                  onChange={handleChange}
+                  className={`shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.location ? 'border-red-500' : ''}`}
+                  placeholder="Ej: Calle 123, Ciudad"
+                />
+                {errors.location && <p className="text-red-500 text-xs italic mt-1">{errors.location}</p>}
+              </div>
+              <div className="mb-4">
+                <label htmlFor="contactEmail" className="block text-gray-700 text-sm font-bold mb-2">Email de Contacto</label>
+                <input
+                  type="email"
+                  id="contactEmail"
+                  name="contactEmail"
+                  value={formData.contactEmail}
+                  onChange={handleChange}
+                  className={`shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.contactEmail ? 'border-red-500' : ''}`}
+                  placeholder="Ej: contacto@empresa.com"
+                />
+                {errors.contactEmail && <p className="text-red-500 text-xs italic mt-1">{errors.contactEmail}</p>}
+              </div>
+              <div className="mb-4">
+                <label htmlFor="contactPhone" className="block text-gray-700 text-sm font-bold mb-2">Teléfono de Contacto</label>
+                <input
+                  type="tel"
+                  id="contactPhone"
+                  name="contactPhone"
+                  value={formData.contactPhone}
+                  onChange={handleChange}
+                  className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Ej: +1234567890"
+                />
+              </div>
+              <div className="mb-6">
+                <label htmlFor="description" className="block text-gray-700 text-sm font-bold mb-2">Descripción</label>
+                <textarea
+                  id="description"
+                  name="description"
+                  value={formData.description}
+                  onChange={handleChange}
+                  rows="3"
+                  className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Breve descripción de la unidad"
+                ></textarea>
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="px-5 py-2 border border-gray-300 rounded-md text-gray-700 font-medium hover:bg-gray-100 transition-colors duration-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-blue-600 text-white rounded-md font-medium hover:bg-blue-700 transition-colors duration-200"
+                >
+                  Guardar Unidad
+                </button>
+              </div>
+            </form>
+          );
+        };
+
+
+        // Componente de Página de Cámaras
+        const CamerasPage = () => {
+          const { db, appId, showConfirmModal, showAlertModal } = useContext(FirebaseContext);
+          const [cameras, setCameras] = useState([]);
+          const [units, setUnits] = useState([]); // Para el dropdown de selección de unidad
+          const [loading, setLoading] = useState(true);
+          const [editingCamera, setEditingCamera] = useState(null);
+          const [showCameraFormModal, setShowCameraFormModal] = useState(false);
+
+          useEffect(() => {
+            if (!db) return;
+
+            setLoading(true);
+            const camerasColRef = collection(db, `artifacts/${appId}/public/data/cameras`);
+            const unitsColRef = collection(db, `artifacts/${appId}/public/data/units`);
+
+            const unsubscribeCameras = onSnapshot(camerasColRef, (snapshot) => {
+              const camerasData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              setCameras(camerasData);
+              setLoading(false);
+            }, (error) => {
+              console.error("Error al obtener cámaras:", error);
+              showAlertModal("Error", "No se pudieron cargar las cámaras.");
+              setLoading(false);
+            });
+
+            const unsubscribeUnits = onSnapshot(unitsColRef, (snapshot) => {
+              const unitsData = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+              setUnits(unitsData);
+            }, (error) => {
+              console.error("Error al obtener unidades para cámaras:", error);
+              showAlertModal("Error", "No se pudieron cargar las unidades para las cámaras.");
+            });
+
+            return () => {
+              unsubscribeCameras();
+              unsubscribeUnits();
+            };
+          }, [db, appId, showAlertModal]);
+
+          const handleAddEditCamera = async (cameraData) => {
+            try {
+              if (editingCamera && editingCamera.id) {
+                const cameraRef = doc(db, `artifacts/${appId}/public/data/cameras`, editingCamera.id);
+                await updateDoc(cameraRef, {
+                  ...cameraData,
+                  updatedAt: new Date(),
+                });
+                showAlertModal("Éxito", "Cámara actualizada correctamente.");
+              } else {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/cameras`), {
+                  ...cameraData,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                });
+                showAlertModal("Éxito", "Cámara agregada correctamente.");
+              }
+              setEditingCamera(null);
+              setShowCameraFormModal(false);
+            } catch (error) {
+              console.error("Error al guardar cámara:", error);
+              showAlertModal("Error", "No se pudo guardar la cámara. Inténtalo de nuevo.");
+            }
+          };
+
+          const handleDeleteCamera = (cameraId) => {
+            showConfirmModal(
+              "Confirmar Eliminación",
+              "¿Estás seguro de que quieres eliminar esta cámara?",
+              async () => {
+                try {
+                  await deleteDoc(doc(db, `artifacts/${appId}/public/data/cameras`, cameraId));
+                  showAlertModal("Éxito", "Cámara eliminada correctamente.");
+                } catch (error) {
+                  console.error("Error al eliminar cámara:", error);
+                  showAlertModal("Error", "No se pudo eliminar la cámara.");
+                }
+              }
+            );
+          };
+
+          // Función para obtener el nombre de la unidad por su ID
+          const getUnitName = (unitId) => {
+            const unit = units.find(u => u.id === unitId);
+            return unit ? unit.name : 'Unidad Desconocida';
+          };
+
+          if (loading) return <LoadingSpinner />;
+
+          return (
+            <div className="container mx-auto p-4 md:p-6">
+              <div className="flex justify-between items-center mb-8">
+                <h2 className="text-4xl font-bold text-gray-900">Cámaras</h2>
+                <button
+                  onClick={() => { setEditingCamera(null); setShowCameraFormModal(true); }}
+                  className="px-6 py-3 bg-green-600 text-white rounded-lg shadow-md hover:bg-green-700 transition-colors duration-300 text-lg"
+                >
+                  Añadir Cámara
+                </button>
+              </div>
+
+              {cameras.length === 0 ? (
+                <p className="text-center text-gray-600 text-xl mt-12">No hay cámaras registradas. ¡Añade una!</p>
+              ) : (
+                <div className="overflow-x-auto bg-white rounded-lg shadow-xl">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tl-lg">Nombre</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unidad</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {cameras.map((camera) => (
+                        <tr key={camera.id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{camera.name}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{getUnitName(camera.unitId)}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{camera.location}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                              camera.status === 'Active' ? 'bg-green-100 text-green-800' :
+                              camera.status === 'Offline' ? 'bg-red-100 text-red-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {camera.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button
+                              onClick={() => { setEditingCamera(camera); setShowCameraFormModal(true); }}
+                              className="text-indigo-600 hover:text-indigo-900 mr-4 transition-colors duration-200"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCamera(camera.id)}
+                              className="text-red-600 hover:text-red-900 transition-colors duration-200"
+                            >
+                              Eliminar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Formulario Modal para Añadir/Editar Cámara */}
+              <Modal
+                show={showCameraFormModal}
+                title={editingCamera ? 'Editar Cámara' : 'Añadir Nueva Cámara'}
+                onConfirm={null}
+                onCancel={() => { setEditingCamera(null); setShowCameraFormModal(false); }}
+              >
+                <CameraForm camera={editingCamera} units={units} onSave={handleAddEditCamera} onCancel={() => { setEditingCamera(null); setShowCameraFormModal(false); }} />
+              </Modal>
+            </div>
+          );
+        };
+
+        // Formulario para Cámaras
+        const CameraForm = ({ camera, units, onSave, onCancel }) => {
+          const [formData, setFormData] = useState({
+            name: camera?.name || '',
+            unitId: camera?.unitId || '',
+            location: camera?.location || '',
+            status: camera?.status || 'Active', // Default status
+            streamUrl: camera?.streamUrl || '', // Placeholder
+          });
+          const [errors, setErrors] = useState({});
+
+          useEffect(() => {
+            if (camera) {
+              setFormData({
+                name: camera.name || '',
+                unitId: camera.unitId || '',
+                location: camera.location || '',
+                status: camera.status || 'Active',
+                streamUrl: camera.streamUrl || '',
+              });
+            } else {
+              setFormData({ name: '', unitId: '', location: '', status: 'Active', streamUrl: '' });
+            }
+          }, [camera]);
+
+          const handleChange = (e) => {
+            const { name, value } = e.target;
+            setFormData((prev) => ({ ...prev, [name]: value }));
+          };
+
+          const validate = () => {
+            const newErrors = {};
+            if (!formData.name.trim()) newErrors.name = "El nombre de la cámara es obligatorio.";
+            if (!formData.unitId) newErrors.unitId = "Debes seleccionar una unidad.";
+            setErrors(newErrors);
+            return Object.keys(newErrors).length === 0;
+          };
+
+          const handleSubmit = (e) => {
+            e.preventDefault();
+            if (validate()) {
+              onSave(formData);
+            }
+          };
+
+          return (
+            <form onSubmit={handleSubmit} className="p-4 bg-gray-50 rounded-lg">
+              <div className="mb-4">
+                <label htmlFor="name" className="block text-gray-700 text-sm font-bold mb-2">Nombre de la Cámara*</label>
+                <input
+                  type="text"
+                  id="name"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  className={`shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.name ? 'border-red-500' : ''}`}
+                  placeholder="Ej: Cámara Principal Entrada"
+                />
+                {errors.name && <p className="text-red-500 text-xs italic mt-1">{errors.name}</p>}
+              </div>
+              <div className="mb-4">
+                <label htmlFor="unitId" className="block text-gray-700 text-sm font-bold mb-2">Unidad Empresarial*</label>
+                <select
+                  id="unitId"
+                  name="unitId"
+                  value={formData.unitId}
+                  onChange={handleChange}
+                  className={`shadow border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.unitId ? 'border-red-500' : ''}`}
+                >
+                  <option value="">Selecciona una unidad</option>
+                  {units.map((unit) => (
+                    <option key={unit.id} value={unit.id}>{unit.name}</option>
+                  ))}
+                </select>
+                {errors.unitId && <p className="text-red-500 text-xs italic mt-1">{errors.unitId}</p>}
+              </div>
+              <div className="mb-4">
+                <label htmlFor="location" className="block text-gray-700 text-sm font-bold mb-2">Ubicación de la Cámara</label>
+                <input
+                  type="text"
+                  id="location"
+                  name="location"
+                  value={formData.location}
+                  onChange={handleChange}
+                  className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Ej: Pasillo principal, Oficina 3"
+                />
+              </div>
+              <div className="mb-4">
+                <label htmlFor="status" className="block text-gray-700 text-sm font-bold mb-2">Estado</label>
+                <select
+                  id="status"
+                  name="status"
+                  value={formData.status}
+                  onChange={handleChange}
+                  className="shadow border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="Active">Activa</option>
+                  <option value="Inactive">Inactiva</option>
+                  <option value="Offline">Offline</option>
+                  <option value="Maintenance">Mantenimiento</option>
+                </select>
+              </div>
+              <div className="mb-6">
+                <label htmlFor="streamUrl" className="block text-gray-700 text-sm font-bold mb-2">URL de Stream (Opcional)</label>
+                <input
+                  type="url"
+                  id="streamUrl"
+                  name="streamUrl"
+                  value={formData.streamUrl}
+                  onChange={handleChange}
+                  className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Ej: rtsp://ejemplo.com/stream"
+                />
+                <p className="text-gray-500 text-xs italic mt-1">Solo se guarda la URL, no se reproduce el stream.</p>
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="px-5 py-2 border border-gray-300 rounded-md text-gray-700 font-medium hover:bg-gray-100 transition-colors duration-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-green-600 text-white rounded-md font-medium hover:bg-green-700 transition-colors duration-200"
+                >
+                  Guardar Cámara
+                </button>
+              </div>
+            </form>
+          );
+        };
+
+        // Componente de Página de Archivos
+        const FilesPage = () => {
+          const { db, appId, userId, showConfirmModal, showAlertModal } = useContext(FirebaseContext);
+          const [files, setFiles] = useState([]);
+          const [units, setUnits] = useState([]);
+          const [loading, setLoading] = useState(true);
+          const [editingFile, setEditingFile] = useState(null);
+          const [showFileFormModal, setShowFileFormModal] = useState(false);
+
+          useEffect(() => {
+            if (!db) return;
+
+            setLoading(true);
+            const filesColRef = collection(db, `artifacts/${appId}/public/data/files`);
+            const unitsColRef = collection(db, `artifacts/${appId}/public/data/units`);
+
+            const unsubscribeFiles = onSnapshot(filesColRef, (snapshot) => {
+              const filesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              setFiles(filesData);
+              setLoading(false);
+            }, (error) => {
+              console.error("Error al obtener archivos:", error);
+              showAlertModal("Error", "No se pudieron cargar los archivos.");
+              setLoading(false);
+            });
+
+            const unsubscribeUnits = onSnapshot(unitsColRef, (snapshot) => {
+              const unitsData = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+              setUnits(unitsData);
+            }, (error) => {
+              console.error("Error al obtener unidades para archivos:", error);
+              showAlertModal("Error", "No se pudieron cargar las unidades para los archivos.");
+            });
+
+            return () => {
+              unsubscribeFiles();
+              unsubscribeUnits();
+            };
+          }, [db, appId, showAlertModal]);
+
+          const handleAddEditFile = async (fileData) => {
+            try {
+              if (editingFile && editingFile.id) {
+                const fileRef = doc(db, `artifacts/${appId}/public/data/files`, editingFile.id);
+                await updateDoc(fileRef, {
+                  ...fileData,
+                  updatedAt: new Date(),
+                });
+                showAlertModal("Éxito", "Archivo actualizado correctamente.");
+              } else {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/files`), {
+                  ...fileData,
+                  uploadedBy: userId, // Registrar quién lo subió
+                  uploadedAt: new Date(),
+                  updatedAt: new Date(),
+                });
+                showAlertModal("Éxito", "Archivo agregado correctamente.");
+              }
+              setEditingFile(null);
+              setShowFileFormModal(false);
+            } catch (error) {
+              console.error("Error al guardar archivo:", error);
+              showAlertModal("Error", "No se pudo guardar el archivo. Inténtalo de nuevo.");
+            }
+          };
+
+          const handleDeleteFile = (fileId) => {
+            showConfirmModal(
+              "Confirmar Eliminación",
+              "¿Estás seguro de que quieres eliminar este archivo (solo el registro, no el archivo real)?",
+              async () => {
+                try {
+                  await deleteDoc(doc(db, `artifacts/${appId}/public/data/files`, fileId));
+                  showAlertModal("Éxito", "Archivo eliminado correctamente.");
+                } catch (error) {
+                  console.error("Error al eliminar archivo:", error);
+                  showAlertModal("Error", "No se pudo eliminar el archivo.");
+                }
+              }
+            );
+          };
+
+          const getUnitName = (unitId) => {
+            const unit = units.find(u => u.id === unitId);
+            return unit ? unit.name : 'N/A';
+          };
+
+          if (loading) return <LoadingSpinner />;
+
+          return (
+            <div className="container mx-auto p-4 md:p-6">
+              <div className="flex justify-between items-center mb-8">
+                <h2 className="text-4xl font-bold text-gray-900">Archivos de la Empresa</h2>
+                <button
+                  onClick={() => { setEditingFile(null); setShowFileFormModal(true); }}
+                  className="px-6 py-3 bg-purple-600 text-white rounded-lg shadow-md hover:bg-purple-700 transition-colors duration-300 text-lg"
+                >
+                  Añadir Archivo
+                </button>
+              </div>
+
+              {files.length === 0 ? (
+                <p className="text-center text-gray-600 text-xl mt-12">No hay archivos registrados. ¡Añade uno!</p>
+              ) : (
+                <div className="overflow-x-auto bg-white rounded-lg shadow-xl">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tl-lg">Nombre de Archivo</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unidad</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">URL (ref)</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subido Por</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subido El</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {files.map((file) => (
+                        <tr key={file.id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{file.fileName}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{file.fileType}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{getUnitName(file.unitId)}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 hover:underline">
+                            <a href={file.fileUrl} target="_blank" rel="noopener noreferrer" className="break-all">{file.fileUrl ? 'Ver Archivo' : 'N/A'}</a>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 break-all">{file.uploadedBy}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                            {file.uploadedAt && typeof file.uploadedAt.toDate === 'function' ? new Date(file.uploadedAt.toDate()).toLocaleString() : 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button
+                              onClick={() => { setEditingFile(file); setShowFileFormModal(true); }}
+                              className="text-indigo-600 hover:text-indigo-900 mr-4 transition-colors duration-200"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleDeleteFile(file.id)}
+                              className="text-red-600 hover:text-red-900 transition-colors duration-200"
+                            >
+                              Eliminar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Formulario Modal para Añadir/Editar Archivo */}
+              <Modal
+                show={showFileFormModal}
+                title={editingFile ? 'Editar Archivo' : 'Añadir Nuevo Archivo'}
+                onConfirm={null}
+                onCancel={() => { setEditingFile(null); setShowFileFormModal(false); }}
+              >
+                <FileForm file={editingFile} units={units} onSave={handleAddEditFile} onCancel={() => { setEditingFile(null); setShowFileFormModal(false); }} />
+              </Modal>
+            </div>
+          );
+        };
+
+        // Formulario para Archivos
+        const FileForm = ({ file, units, onSave, onCancel }) => {
+          const [formData, setFormData] = useState({
+            fileName: file?.fileName || '',
+            fileType: file?.fileType || '',
+            unitId: file?.unitId || '',
+            fileUrl: file?.fileUrl || '',
+          });
+          const [errors, setErrors] = useState({});
+
+          useEffect(() => {
+            if (file) {
+              setFormData({
+                fileName: file.fileName || '',
+                fileType: file.fileType || '',
+                unitId: file.unitId || '',
+                fileUrl: file.fileUrl || '',
+              });
+            } else {
+              setFormData({ fileName: '', fileType: '', unitId: '', fileUrl: '' });
+            }
+          }, [file]);
+
+          const handleChange = (e) => {
+            const { name, value } = e.target;
+            setFormData((prev) => ({ ...prev, [name]: value }));
+          };
+
+          const validate = () => {
+            const newErrors = {};
+            if (!formData.fileName.trim()) newErrors.fileName = "El nombre del archivo es obligatorio.";
+            if (!formData.unitId) newErrors.unitId = "Debes seleccionar una unidad.";
+            if (!formData.fileType.trim()) newErrors.fileType = "El tipo de archivo es obligatorio.";
+            if (formData.fileUrl && !/^(ftp|http|https):\/\/[^ "]+$/.test(formData.fileUrl)) {
+              newErrors.fileUrl = "URL inválida.";
+            }
+            setErrors(newErrors);
+            return Object.keys(newErrors).length === 0;
+          };
+
+          const handleSubmit = (e) => {
+            e.preventDefault();
+            if (validate()) {
+              onSave(formData);
+            }
+          };
+
+          return (
+            <form onSubmit={handleSubmit} className="p-4 bg-gray-50 rounded-lg">
+              <div className="mb-4">
+                <label htmlFor="fileName" className="block text-gray-700 text-sm font-bold mb-2">Nombre de Archivo*</label>
+                <input
+                  type="text"
+                  id="fileName"
+                  name="fileName"
+                  value={formData.fileName}
+                  onChange={handleChange}
+                  className={`shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-purple-500 ${errors.fileName ? 'border-red-500' : ''}`}
+                  placeholder="Ej: Contrato_2024.pdf"
+                />
+                {errors.fileName && <p className="text-red-500 text-xs italic mt-1">{errors.fileName}</p>}
+              </div>
+              <div className="mb-4">
+                <label htmlFor="fileType" className="block text-gray-700 text-sm font-bold mb-2">Tipo de Archivo*</label>
+                <input
+                  type="text"
+                  id="fileType"
+                  name="fileType"
+                  value={formData.fileType}
+                  onChange={handleChange}
+                  className={`shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-purple-500 ${errors.fileType ? 'border-red-500' : ''}`}
+                  placeholder="Ej: PDF, DOCX, JPG"
+                />
+                {errors.fileType && <p className="text-red-500 text-xs italic mt-1">{errors.fileType}</p>}
+              </div>
+              <div className="mb-4">
+                <label htmlFor="unitId" className="block text-gray-700 text-sm font-bold mb-2">Unidad Empresarial*</label>
+                <select
+                  id="unitId"
+                  name="unitId"
+                  value={formData.unitId}
+                  onChange={handleChange}
+                  className={`shadow border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-purple-500 ${errors.unitId ? 'border-red-500' : ''}`}
+                >
+                  <option value="">Selecciona una unidad</option>
+                  {units.map((unit) => (
+                    <option key={unit.id} value={unit.id}>{unit.name}</option>
+                  ))}
+                </select>
+                {errors.unitId && <p className="text-red-500 text-xs italic mt-1">{errors.unitId}</p>}
+              </div>
+              <div className="mb-6">
+                <label htmlFor="fileUrl" className="block text-gray-700 text-sm font-bold mb-2">URL del Archivo (Opcional)</label>
+                <input
+                  type="url"
+                  id="fileUrl"
+                  name="fileUrl"
+                  value={formData.fileUrl}
+                  onChange={handleChange}
+                  className={`shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-purple-500 ${errors.fileUrl ? 'border-red-500' : ''}`}
+                  placeholder="Ej: https://docs.google.com/document/d/xyz"
+                />
+                {errors.fileUrl && <p className="text-red-500 text-xs italic mt-1">{errors.fileUrl}</p>}
+                <p className="text-gray-500 text-xs italic mt-1">
+                  Aquí se guarda una referencia o URL externa al archivo. El archivo no se almacena directamente aquí.
+                </p>
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="px-5 py-2 border border-gray-300 rounded-md text-gray-700 font-medium hover:bg-gray-100 transition-colors duration-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-purple-600 text-white rounded-md font-medium hover:bg-purple-700 transition-colors duration-200"
+                >
+                  Guardar Archivo
+                </button>
+              </div>
+            </form>
+          );
+        };
+
+
+        // Componente de Página de Fallas
+        const FaultsPage = () => {
+          const { db, appId, userId, showConfirmModal, showAlertModal } = useContext(FirebaseContext);
+          const [faults, setFaults] = useState([]);
+          const [units, setUnits] = useState([]);
+          const [cameras, setCameras] = useState([]);
+          const [loading, setLoading] = useState(true);
+          const [editingFault, setEditingFault] = useState(null);
+          const [showFaultFormModal, setShowFaultFormModal] = useState(false);
+
+          useEffect(() => {
+            if (!db) return;
+
+            setLoading(true);
+            const faultsColRef = collection(db, `artifacts/${appId}/public/data/faults`);
+            const unitsColRef = collection(db, `artifacts/${appId}/public/data/units`);
+            const camerasColRef = collection(db, `artifacts/${appId}/public/data/cameras`);
+
+            const unsubscribeFaults = onSnapshot(faultsColRef, (snapshot) => {
+              const faultsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              setFaults(faultsData);
+              setLoading(false);
+            }, (error) => {
+              console.error("Error al obtener fallas:", error);
+              showAlertModal("Error", "No se pudieron cargar las fallas.");
+              setLoading(false);
+            });
+
+            const unsubscribeUnits = onSnapshot(unitsColRef, (snapshot) => {
+              const unitsData = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+              setUnits(unitsData);
+            });
+
+            const unsubscribeCameras = onSnapshot(camerasColRef, (snapshot) => {
+              const camerasData = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name, unitId: doc.data().unitId }));
+              setCameras(camerasData);
+            });
+
+            return () => {
+              unsubscribeFaults();
+              unsubscribeUnits();
+              unsubscribeCameras();
+            };
+          }, [db, appId, showAlertModal]);
+
+          const handleAddEditFault = async (faultData) => {
+            try {
+              // Agregar unitName y cameraName para fácil visualización
+              const unitName = units.find(u => u.id === faultData.unitId)?.name || 'N/A';
+              const cameraName = cameras.find(c => c.id === faultData.cameraId)?.name || 'N/A';
+
+              if (editingFault && editingFault.id) {
+                const faultRef = doc(db, `artifacts/${appId}/public/data/faults`, editingFault.id);
+                await updateDoc(faultRef, {
+                  ...faultData,
+                  unitName,
+                  cameraName,
+                  updatedAt: new Date(),
+                  resolvedAt: faultData.status === 'Resolved' && (!editingFault.resolvedAt || typeof editingFault.resolvedAt.toDate !== 'function') ? new Date() : editingFault.resolvedAt,
+                });
+                showAlertModal("Éxito", "Falla actualizada correctamente.");
+              } else {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/faults`), {
+                  ...faultData,
+                  unitName,
+                  cameraName,
+                  reportedBy: userId,
+                  reportedAt: new Date(),
+                  updatedAt: new Date(),
+                  resolvedAt: faultData.status === 'Resolved' ? new Date() : null,
+                });
+                showAlertModal("Éxito", "Falla reportada correctamente.");
+              }
+              setEditingFault(null);
+              setShowFaultFormModal(false);
+            } catch (error) {
+              console.error("Error al guardar falla:", error);
+              showAlertModal("Error", "No se pudo guardar la falla. Inténtalo de nuevo.");
+            }
+          };
+
+          const handleDeleteFault = (faultId) => {
+            showConfirmModal(
+              "Confirmar Eliminación",
+              "¿Estás seguro de que quieres eliminar esta falla?",
+              async () => {
+                try {
+                  await deleteDoc(doc(db, `artifacts/${appId}/public/data/faults`, faultId));
+                  showAlertModal("Éxito", "Falla eliminada correctamente.");
+                } catch (error) {
+                  console.error("Error al eliminar falla:", error);
+                  showAlertModal("Error", "No se pudo eliminar la falla.");
+                }
+              }
+            );
+          };
+
+          if (loading) return <LoadingSpinner />;
+
+          return (
+            <div className="container mx-auto p-4 md:p-6">
+              <div className="flex justify-between items-center mb-8">
+                <h2 className="text-4xl font-bold text-gray-900">Monitoreo de Fallas</h2>
+                <button
+                  onClick={() => { setEditingFault(null); setShowFaultFormModal(true); }}
+                  className="px-6 py-3 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 transition-colors duration-300 text-lg"
+                >
+                  Reportar Falla
+                </button>
+              </div>
+
+              {faults.length === 0 ? (
+                <p className="text-center text-gray-600 text-xl mt-12">No hay fallas reportadas. ¡Reporta una!</p>
+              ) : (
+                <div className="overflow-x-auto bg-white rounded-lg shadow-xl">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tl-lg">Descripción</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unidad</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cámara</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reportado Por</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reportado El</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {faults.map((fault) => (
+                        <tr key={fault.id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{fault.description}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{fault.type}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                              fault.status === 'Reported' ? 'bg-red-100 text-red-800' :
+                              fault.status === 'Investigating' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-green-100 text-green-800'
+                            }`}>
+                              {fault.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{fault.unitName || 'N/A'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{fault.cameraName || 'N/A'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 break-all">{fault.reportedBy}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                            {fault.reportedAt && typeof fault.reportedAt.toDate === 'function' ? new Date(fault.reportedAt.toDate()).toLocaleString() : 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button
+                              onClick={() => { setEditingFault(fault); setShowFaultFormModal(true); }}
+                              className="text-indigo-600 hover:text-indigo-900 mr-4 transition-colors duration-200"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleDeleteFault(fault.id)}
+                              className="text-red-600 hover:text-red-900 transition-colors duration-200"
+                            >
+                              Eliminar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {/* Formulario Modal para Reportar/Editar Falla */}
+              <Modal
+                show={showFaultFormModal}
+                title={editingFault ? 'Editar Falla' : 'Reportar Nueva Falla'}
+                onConfirm={null}
+                onCancel={() => { setEditingFault(null); setShowFaultFormModal(false); }}
+              >
+                <FaultForm fault={editingFault} units={units} cameras={cameras} onSave={handleAddEditFault} onCancel={() => { setEditingFault(null); setShowFaultFormModal(false); }} />
+              </Modal>
+            </div>
+          );
+        };
+        const FaultForm = ({ fault, units, cameras, onSave, onCancel }) => {
+          const [formData, setFormData] = useState({
+            description: fault?.description || '',
+            type: fault?.type || 'Hardware',
+            status: fault?.status || 'Reported',
+            unitId: fault?.unitId || '',
+            cameraId: fault?.cameraId || '',
+          });
+          const [errors, setErrors] = useState({});
+
+          useEffect(() => {
+            if (fault) {
+              setFormData({
+                description: fault.description || '',
+                type: fault.type || 'Hardware',
+                status: fault.status || 'Reported',
+                unitId: fault.unitId || '',
+                cameraId: fault.cameraId || '',
+              });
+            } else {
+              setFormData({ description: '', type: 'Hardware', status: 'Reported', unitId: '', cameraId: '' });
+            }
+          }, [fault]);
+          const handleChange = (e) => {
+            const { name, value } = e.target;
+            setFormData((prev) => ({ ...prev, [name]: value }));
+          };
+          const validate = () => {
+            const newErrors = {};
+            if (!formData.description.trim()) newErrors.description = "La descripción es obligatoria.";
+            if (!formData.unitId) newErrors.unitId = "Debes seleccionar una unidad.";
+            setErrors(newErrors);
+            return Object.keys(newErrors).length === 0;
+          };
+
+          const handleSubmit = (e) => {
+            e.preventDefault();
+            if (validate()) {
+              onSave(formData);
+            }
+          }nada
+          const filteredCameras = cameras.filter(cam => cam.unitId === formData.unitId);
+          return (
+            <form onSubmit={handleSubmit} className="p-4 bg-gray-50 rounded-lg">
+              <div className="mb-4">
+                <label htmlFor="description" className="block text-gray-700 text-sm font-bold mb-2">Descripción de la Falla*</label>
+                <textarea
+                  id="description"
+                  name="description"
+                  value={formData.description}
+                  onChange={handleChange}
+                  rows="3"
+                  className={`shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.description ? 'border-red-500' : ''}`}
+                  placeholder="Ej: Cámara 1 no transmite video"
+                ></textarea>
+                {errors.description && <p className="text-red-500 text-xs italic mt-1">{errors.description}</p>}
+              </div>
+              <div className="mb-4">
+                <label htmlFor="type" className="block text-gray-700 text-sm font-bold mb-2">Tipo de Falla</label>
+                <select
+                  id="type"
+                  name="type"
+                  value={formData.type}
+                  onChange={handleChange}
+                  className="shadow border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  <option value="Hardware">Hardware</option>
+                  <option value="Software">Software</option>
+                  <option value="Network">Red</option>
+                  <option value="Power">Energía</option>
+                  <option value="Other">Otro</option>
+                </select>
+              </div>
+              <div className="mb-4">
+                <label htmlFor="status" className="block text-gray-700 text-sm font-bold mb-2">Estado</label>
+                <select
+                  id="status"
+                  name="status"
+                  value={formData.status}
+                  onChange={handleChange}
+                  className="shadow border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  <option value="Reported">Reportada</option>
+                  <option value="Investigating">Investigando</option>
+                  <option value="Resolved">Resuelta</option>
+                  <option value="Closed">Cerrada</option>
+                </select>
+              </div>
+              <div className="mb-4">
+                <label htmlFor="unitId" className="block text-gray-700 text-sm font-bold mb-2">Unidad Empresarial Asociada*</label>
+                <select
+                  id="unitId"
+                  name="unitId"
+                  value={formData.unitId}
+                  onChange={handleChange}
+                  className={`shadow border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500 ${errors.unitId ? 'border-red-500' : ''}`}
+                >
+                  <option value="">Selecciona una unidad</option>
+                  {units.map((unit) => (
+                    <option key={unit.id} value={unit.id}>{unit.name}</option>
+                  ))}
+                </select>
+                {errors.unitId && <p className="text-red-500 text-xs italic mt-1">{errors.unitId}</p>}
+              </div>
+              <div className="mb-6">
+                <label htmlFor="cameraId" className="block text-gray-700 text-sm font-bold mb-2">Cámara Asociada (Opcional)</label>
+                <select
+                  id="cameraId"
+                  name="cameraId"
+                  value={formData.cameraId}
+                  onChange={handleChange}
+                  className="shadow border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500"
+                  disabled={!formData.unitId} // Deshabilitar si no se ha seleccionado una unidad
+                >
+                  <option value="">Selecciona una cámara</option>
+                  {filteredCameras.map((camera) => (
+                    <option key={camera.id} value={camera.id}>{camera.name}</option>
+                  ))}
+                </select>
+                {!formData.unitId && <p className="text-gray-500 text-xs italic mt-1">Selecciona una unidad primero para ver las cámaras.</p>}
+              </div>
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="px-5 py-2 border border-gray-300 rounded-md text-gray-700 font-medium hover:bg-gray-100 transition-colors duration-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-red-600 text-white rounded-md font-medium hover:bg-red-700 transition-colors duration-200"
+                >
+                  Guardar Falla
+                </button>
+              </div>
+            </form>
+          );
+        };
+        // Renderizar la aplicación React en el div con id="root"
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

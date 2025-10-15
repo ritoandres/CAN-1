@@ -1,0 +1,27 @@
+.main-nav {
+    margin-top: 10px;
+    background-color: rgb(12, 247, 63);
+    padding: 20px;
+    border: 2px solid rgb(100, 35, 221);
+    list-style: none;    
+}
+
+.main-nav___item {
+    display: block;
+    margin-top: 10px;
+}
+.main-nav___item a {
+    color:white;
+    padding: 5px;
+    border: 9px solid transparent;
+    text-decoration: none;
+    font-weight: bold;}
+.main-nav___item a:hover {
+    background-color: rgb(167, 45, 96);}
+.main-nav___item a:active {
+    background-color: rgb(255, 0, 0);}
+    .main-nav___item a::after 
+{
+    content: " (elige una opción)";
+    color: rgb(255, 255, 0);
+    }

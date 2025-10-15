@@ -1,0 +1,50 @@
+/* ...existing code... */
+body {
+    background-color: #f0f0f0;
+}
+p {
+    color: rgb(81, 250, 47);
+    font-size: 20px;
+}
+/* ...existing code... */
+/* styles.css */
+body {
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0px;
+    padding: 20px;
+    background-color: #e0f2f7;
+}
+h1 {
+    color: #00796b;
+    text-align: center;
+    border-bottom: 2px solid #00796b;
+    padding-bottom: 10px;
+}
+.destacado {
+    color: #d32f2f;
+    font-weight: bold;
+}
+#seccion-principal {
+    background-color: white;
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(209, 18, 18, 0.1);
+}
+p {
+    color: black;
+    font-size: 35px;
+}
+<p class="destacado">"nom clase"</p>
+</p> :horizontal
+<p id="seccion-principal">Este es un párrafo dentro de la sección principal.</p>
+<p class="destacado">"nom clase"</p>
+/*{color: #d32f2f; font-weight: bold;}*/
+{color: #d32f2f; font-weight: bold;}]
+.nom-clase {
+    color: #d32f2f;
+    font-weight: bold;
+}
+#idparrafo {
+    color: #d32f2f;
+    font-weight: bold;
+}

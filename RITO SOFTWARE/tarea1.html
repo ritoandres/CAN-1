@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+     <link rel="stylesheet" href="tarea1.css">
+         <meta charset="UTF-8">
+         <meta http-equiv="X-UA-Compatible" content="IE=edge">
+         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Página Web Responsiva</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: "Inter", sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 leading-relaxed">
+    <!-- una ves en nueva york -->
+    <header class="bg-gray-800 text-white p-6 text-center rounded-b-lg shadow-md">
+        <h1 class="text-4xl font-bold">Mi Sitio Web Responsivo</h1>
+    </header>
+
+    <!-- Barra de navegación -->
+    <nav class="bg-gray-700 p-4 text-center shadow-md">
+        <div class="flex flex-wrap justify-center space-x-4">
+            <a href="#inicio" class="text-white hover:bg-gray-600 px-4 py-2 rounded-md transition duration-300">Inicio</a>
+            <a href="#servicios" class="text-white hover:bg-gray-600 px-4 py-2 rounded-md transition duration-300">Servicios</a>
+            <a href="#portafolio" class="text-white hover:bg-gray-600 px-4 py-2 rounded-md transition duration-300">Portafolio</a>
+            <a href="#contacto" class="text-white hover:bg-gray-600 px-4 py-2 rounded-md transition duration-300">Contacto</a>
+        </div>
+    </nav>
+
+    <main class="container mx-auto p-4 md:p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Primera caja de contenido -->
+        <section class="column bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-2xl font-semibold mb-4">Caja Uno: Nuestro Enfoque</h2>
+            <p class="mb-4">mi primer aplicacion distribuida</p>
+            <img src="https://placehold.co/400x250/3366FF/FFFFFF?text=Enfoque+Principal" alt="Imagen de Enfoque Principal" class="w-full h-auto rounded-md shadow-sm">
+        </section>
+
+        <!-- Segunda caja de contenido -->
+        <section class="column bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-2xl font-semibold mb-4">bienvenido2: Nuestros Servicios</h2>
+            <p class="mb-4">PAGINA WEB SISBEN PUERTO ASIS</p>
+            <ul class="list-disc list-inside space-y-2">
+                <li>registrate e inicia sesion</li>
+                <li>quienes somos</li>
+                <li>consulta tu estado</li>
+                <li>importancia y beneficios</li>
+            </ul>
+            <img src="descargasisben.png" alt="Imagen de Servicios" class="w-full h-auto rounded-md shadow-sm mt-4">
+        </section>
+        <!-- Tercera caja de contenido -->
+        <section class="column bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-2xl font-semibold mb-4">Caja Tres: Contacto Rápido</h2>
+            <p class="mb-4">mi tercer caja de experimento</p>
+            <address class="not-italic">
+                <p>Email: ritoandres01@gmail.com</p>
+                <p>Teléfono: 3202978372</p>
+                <p>Dirección: Puerto Asís, Putumayo</p>
+            </address>
+            <img src="https://placehold.co/400x250/66CC66/FFFFFF?text=Contacto" alt="Imagen de Contacto" class="w-full h-auto rounded-md shadow-sm mt-4">
+        </section>
+    </main>
+
+    <!-- Pie de página -->
+    <footer class="bg-gray-800 text-white p-6 text-center mt-8 rounded-t-lg shadow-md">
+        <p class="text-sm">&copy; 2025 Mi Sitio Web. Todos los derechos reservados.</p>s
+        <p class="text-xs mt-2">Hecho con ❤️ y código responsivo.</p>
+    </footer>
+</body>
+</html>

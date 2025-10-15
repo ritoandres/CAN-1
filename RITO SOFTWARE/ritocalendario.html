@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lista de Tareas (To-Do List) con Alarmas</title>
+    <!-- CDN de React -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- CDN de Babel para transpilar JSX en el navegador -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- CDN de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Font - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- Firebase SDKs -->
+    <script type="module">
+        // Importa las funciones específicas de Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { 
+            getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp 
+        } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        // Globaliza las funciones y variables de Firebase para que el script de Babel las vea.
+        // Esto es necesario porque el script de React está marcado como type="text/babel"
+        // y no puede usar import/export directamente como un módulo JS estándar en HTML.
+        window.firebase = {
+            initializeApp,
+            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp
+        };
+    </script>
+    <style>
+        /* Define la fuente Inter para todo el cuerpo del documento */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Asegura que el contenedor de carga ocupe toda la pantalla */
+        .h-screen {
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // Importa React y ReactDOM desde el ámbito global (cargados por los CDNs)
+        const { useState, useEffect, createContext, useContext } = React;
+        const { createRoot } = ReactDOM; // Usar createRoot para React 18
+
+        // Accede a las funciones de Firebase globalizadas por el script anterior
+        const {
+            initializeApp,
+            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp
+        } = window.firebase;
+
+        // Contexto para Firebase y Autenticación
+        const FirebaseContext = createContext(null);
+
+        // Componente para el Spinner de Carga
+        const LoadingSpinner = () => (
+          <div className="flex justify-center items-center h-screen bg-gray-100">
+            <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
+            <p className="ml-4 text-xl text-gray-700">Cargando...</p>
+          </div>
+        );
+
+        // Componente Modal personalizado (para confirmaciones y alertas)
+        const Modal = ({ show, title, message, onConfirm, onCancel, children }) => {
+          if (!show) return null;
+
+          return (
+            <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex justify-center items-center z-50 p-4">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-auto transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <h3 className="text-2xl font-bold text-gray-900 mb-4 border-b pb-2">{title}</h3>
+                {message && <p className="text-gray-700 mb-6">{message}</p>}
+                {children} {/* Permite contenido personalizado dentro del modal */}
+                <div className="mt-6 flex justify-end space-x-3">
+                  {onCancel && (
+                    <button
+                      onClick={onCancel}
+                      className="px-5 py-2 border border-gray-300 rounded-md text-gray-700 text-lg font-medium hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                  {onConfirm && (
+                    <button
+                      onClick={onConfirm}
+                      className="px-5 py-2 bg-blue-600 text-white rounded-md text-lg font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      Confirmar
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        const App = () => {
+          const [db, setDb] = useState(null);
+          const [auth, setAuth] = useState(null);
+          const [userId, setUserId] = useState(null);
+          const [loadingFirebase, setLoadingFirebase] = useState(true);
+          const [tasks, setTasks] = useState([]);
+          const [newTaskText, setNewTaskText] = useState('');
+          const [newDueDate, setNewDueDate] = useState(''); // Nuevo estado para la fecha de la alarma
+          const [showModal, setShowModal] = useState(false);
+          const [modalContent, setModalContent] = useState({});
+          const [currentTaskToDelete, setCurrentTaskToDelete] = useState(null); // Para almacenar la tarea a eliminar
+          // Estado para controlar qué tareas ya han sido notificadas (para evitar notificaciones repetidas)
+          const [notifiedTasks, setNotifiedTasks] = useState({}); 
+
+          useEffect(() => {
+            // Inicialización de Firebase
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+
+            try {
+              const app = initializeApp(firebaseConfig);
+              const firestore = getFirestore(app);
+              const firebaseAuth = getAuth(app);
+
+              setDb(firestore);
+              setAuth(firebaseAuth);
+
+              // Autenticación
+              const unsubscribeAuth = onAuthStateChanged(firebaseAuth, async (user) => {
+                if (user) {
+                  setUserId(user.uid);
+                  setLoadingFirebase(false);
+                } else {
+                  try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                      await signInWithCustomToken(firebaseAuth, __initial_auth_token);
+                    } else {
+                      await signInAnonymously(firebaseAuth);
+                    }
+                  } catch (authError) {
+                    console.error("Error durante la autenticación:", authError);
+                    setLoadingFirebase(false);
+                  }
+                }
+              });
+
+              return () => unsubscribeAuth();
+            } catch (error) {
+              console.error("Error al inicializar Firebase:", error);
+              setLoadingFirebase(false);
+            }
+          }, []);
+
+          // Listener de Firestore para tareas
+          useEffect(() => {
+            if (!db || !userId) return;
+
+            const tasksCollectionRef = collection(db, `artifacts/${appId}/public/data/tasks`);
+            const q = query(tasksCollectionRef, orderBy('createdAt', 'desc')); 
+
+            const unsubscribeTasks = onSnapshot(q, (snapshot) => {
+              const tasksData = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+              }));
+              setTasks(tasksData);
+            }, (error) => {
+              console.error("Error al obtener tareas:", error);
+              showAlertModal("Error de Carga", "No se pudieron cargar las tareas. Intenta recargar la página.");
+            });
+
+            return () => unsubscribeTasks();
+          }, [db, userId]);
+
+          // Lógica de Notificaciones (Alarmas)
+          useEffect(() => {
+            // Solicitar permiso de notificación al usuario
+            if (Notification.permission === "default") {
+              Notification.requestPermission();
+            }
+
+            const checkAlarms = setInterval(() => {
+              const now = new Date();
+              tasks.forEach(task => {
+                // Comprobar si la tarea tiene fecha de vencimiento, no está completada y no ha sido notificada
+                if (task.dueDate && !task.completed && !notifiedTasks[task.id]) {
+                  // Convertir el Timestamp de Firestore a objeto Date de JavaScript
+                  const dueDate = task.dueDate.toDate(); 
+                  
+                  // Si la fecha de vencimiento es anterior o igual a la hora actual
+                  if (dueDate <= now) {
+                    if (Notification.permission === "granted") {
+                      // Mostrar notificación
+                      new Notification("¡Tarea Pendiente!", {
+                        body: task.text,
+                        icon: 'https://placehold.co/60x60/4f46e5/ffffff?text=🔔' // Ícono simple de campana
+                      });
+                      // Marcar la tarea como notificada para evitar repeticiones
+                      setNotifiedTasks(prev => ({ ...prev, [task.id]: true }));
+                    } else if (Notification.permission === "denied") {
+                      console.warn("Permiso de notificación denegado. No se pueden mostrar alarmas.");
+                      // Marcar como notificada para evitar spam en la consola
+                      setNotifiedTasks(prev => ({ ...prev, [task.id]: true })); 
+                    }
+                  }
+                }
+              });
+            }, 5000); // Verificar cada 5 segundos
+
+            // Limpiar el intervalo al desmontar el componente
+            return () => clearInterval(checkAlarms);
+          }, [tasks, notifiedTasks]); // Ejecutar el efecto cuando las tareas o el estado de notificaciones cambien
+
+          // Manejar el caso en que una tarea se marca como completada DESPUÉS de que se haya activado una alarma
+          // Si una tarea está completada, su estado de notificación se limpia.
+          useEffect(() => {
+              const newNotifiedTasksState = { ...notifiedTasks };
+              let changed = false;
+              for (const taskId in newNotifiedTasksState) {
+                  const task = tasks.find(t => t.id === taskId);
+                  if (task && task.completed) {
+                      delete newNotifiedTasksState[taskId]; // Eliminar de la lista de notificadas si está completada
+                      changed = true;
+                  }
+              }
+              if (changed) {
+                  setNotifiedTasks(newNotifiedTasksState);
+              }
+          }, [tasks]); // Ejecutar cuando el array de tareas cambie (ej. cambio de estado de completado)
+
+
+          const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+          const handleAddTask = async (e) => {
+            e.preventDefault();
+            if (newTaskText.trim() === '') {
+              showAlertModal("Error", "La tarea no puede estar vacía.");
+              return;
+            }
+            if (!db || !userId) {
+              showAlertModal("Error", "El sistema no está listo. Por favor, espera.");
+              return;
+            }
+
+            let parsedDueDate = null;
+            if (newDueDate) {
+                // Convertir la cadena datetime-local a un objeto Date
+                const date = new Date(newDueDate);
+                // Validar que la fecha sea válida
+                if (!isNaN(date.getTime())) {
+                    parsedDueDate = date;
+                } else {
+                    showAlertModal("Error", "Formato de fecha u hora inválido.");
+                    return;
+                }
+            }
+
+            try {
+              await addDoc(collection(db, `artifacts/${appId}/public/data/tasks`), {
+                text: newTaskText,
+                completed: false,
+                createdAt: serverTimestamp(), // Marca de tiempo del servidor para ordenar
+                dueDate: parsedDueDate, // Guardar la fecha de alarma (Date object o null)
+                userId: userId // Asocia la tarea al usuario actual
+              });
+              setNewTaskText(''); // Limpia el campo de entrada después de añadir
+              setNewDueDate(''); // Limpia el campo de fecha de alarma
+            } catch (error) {
+              console.error("Error al añadir tarea:", error);
+              showAlertModal("Error", "No se pudo añadir la tarea. Inténtalo de nuevo.");
+            }
+          };
+
+          const handleToggleComplete = async (task) => {
+            if (!db) return;
+            try {
+              const taskRef = doc(db, `artifacts/${appId}/public/data/tasks`, task.id);
+              await updateDoc(taskRef, {
+                completed: !task.completed
+              });
+            } catch (error) {
+              console.error("Error al actualizar tarea:", error);
+              showAlertModal("Error", "No se pudo actualizar la tarea.");
+            }
+          };
+
+          const handleDeleteTask = (task) => {
+            setCurrentTaskToDelete(task);
+            showConfirmModal(
+              "Confirmar Eliminación",
+              "¿Estás seguro de que quieres eliminar esta tarea?",
+              async () => {
+                if (!db || !currentTaskToDelete) {
+                    showAlertModal("Error", "No se pudo completar la eliminación. Inténtalo de nuevo.");
+                    return;
+                }
+                try {
+                  await deleteDoc(doc(db, `artifacts/${appId}/public/data/tasks`, currentTaskToDelete.id));
+                  showAlertModal("Tarea Eliminada", "La tarea ha sido eliminada correctamente.");
+                  setCurrentTaskToDelete(null); // Limpia el estado de la tarea a eliminar
+                } catch (error) {
+                  console.error("Error al eliminar tarea:", error);
+                  showAlertModal("Error", "No se pudo eliminar la tarea.");
+                }
+              },
+              () => { // Función de cancelación
+                setCurrentTaskToDelete(null);
+                setShowModal(false);
+              }
+            );
+          };
+
+          // Función genérica para mostrar el modal de confirmación
+          const showConfirmModal = (title, message, onConfirm, onCancel) => {
+            setModalContent({
+              title,
+              message,
+              onConfirm,
+              onCancel,
+            });
+            setShowModal(true);
+          };
+
+          // Función genérica para mostrar el modal de alerta/información
+          const showAlertModal = (title, message) => {
+            setModalContent({
+              title,
+              message,
+              onConfirm: () => setShowModal(false),
+              onCancel: null,
+            });
+            setShowModal(true);
+          };
+
+          if (loadingFirebase || !db || !auth || userId === null) {
+            return <LoadingSpinner />;
+          }
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-100 to-indigo-100 flex flex-col items-center p-4">
+              <div className="bg-white rounded-xl shadow-2xl p-6 md:p-8 w-full max-w-lg mt-8 mb-6 transform transition-all duration-300 hover:scale-[1.01]">
+                <h1 className="text-4xl md:text-5xl font-extrabold text-center text-indigo-700 mb-8 leading-tight">
+                  Lista de Tareas
+                </h1>
+                <p className="text-center text-sm text-gray-600 mb-4 break-all">
+                    ID de Usuario: <span className="font-mono bg-gray-100 p-1 rounded text-gray-800">{userId}</span>
+                </p>
+
+                {/* Formulario para añadir nueva tarea */}
+                <form onSubmit={handleAddTask} className="flex flex-col sm:flex-row gap-3 mb-8 flex-wrap">
+                  <input
+                    type="text"
+                    value={newTaskText}
+                    onChange={(e) => setNewTaskText(e.target.value)}
+                    placeholder="Añade una nueva tarea..."
+                    className="flex-grow p-3 border-2 border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg shadow-sm"
+                  />
+                  <input
+                    type="datetime-local"
+                    value={newDueDate}
+                    onChange={(e) => setNewDueDate(e.target.value)}
+                    className="p-3 border-2 border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg shadow-sm w-full sm:w-auto"
+                    title="Fecha y hora de la alarma (opcional)"
+                  />
+                  <button
+                    type="submit"
+                    className="p-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-200 text-lg font-semibold flex-shrink-0 w-full sm:w-auto"
+                  >
+                    Añadir Tarea
+                  </button>
+                </form>
+
+                {/* Lista de tareas */}
+                {tasks.length === 0 ? (
+                  <p className="text-center text-gray-500 text-lg mt-10">No hay tareas. ¡Añade la primera!</p>
+                ) : (
+                  <ul className="space-y-4">
+                    {tasks.map((task) => (
+                      <li
+                        key={task.id}
+                        className={`flex items-center p-4 rounded-lg shadow-md transition-all duration-200 ${
+                          task.completed ? 'bg-green-100 border-l-4 border-green-500' : 'bg-white border-l-4 border-blue-300'
+                        }`}
+                      >
+                        {/* Checkbox para marcar la tarea como completada */}
+                        <input
+                          type="checkbox"
+                          checked={task.completed}
+                          onChange={() => handleToggleComplete(task)}
+                          className="mr-4 h-6 w-6 text-blue-600 rounded focus:ring-blue-500"
+                        />
+                        {/* Contenido de la tarea y la alarma */}
+                        <div className="flex-grow">
+                            <span
+                              className={`text-xl md:text-lg ${
+                                task.completed ? 'line-through text-gray-500' : 'text-gray-800'
+                              }`}
+                            >
+                              {task.text}
+                            </span>
+                            {task.dueDate && task.dueDate.toDate && ( // Asegurarse de que dueDate y toDate() existan
+                                <span className="block text-sm text-gray-400 mt-1">
+                                    Alarma: {new Date(task.dueDate.toDate()).toLocaleString()}
+                                </span>
+                            )}
+                        </div>
+                        {/* Botón para editar la tarea (placeholder, no funcional) */}
+                        <button
+                          onClick={() => handleEditTask(task)}
+                          className="ml-4 p-2 bg-yellow-500 text-white rounded-full hover:bg-yellow-600 transition-colors duration-200 flex-shrink-0"
+                          title="Editar tarea"
+                        >
+                          {/* Icono SVG de lápiz */}
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M17.414 2.586a2 2 0 00-2.828 0L14 3.586 16.414 6 17.414 5a2 2 0 000-2.828zM3 12v5a2 2 0 002 2h5l3 3 1-1-3-3V12H3z" />
+                          </svg>
+                        </button>
+                        {/* Botón para eliminar la tarea */}
+                        <button
+                          onClick={() => handleDeleteTask(task)}
+                          className="ml-4 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors duration-200 flex-shrink-0"
+                          title="Eliminar tarea"
+                        >
+                          {/* Icono SVG de papelera */}
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm1 3a1 1 0 100 2h4a1 1 0 100-2H8z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {/* Modal para confirmaciones/alertas, se muestra u oculta según el estado */}
+              <Modal
+                show={showModal}
+                title={modalContent.title}
+                message={modalContent.message}
+                onConfirm={modalContent.onConfirm}
+                onCancel={modalContent.onCancel}
+              />
+            </div>
+          );
+        };
+        // Renderiza la aplicación React en el div con id="root"
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

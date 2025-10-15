@@ -1,0 +1,105 @@
+ /* Estilos generales */
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    line-height: 1.6;
+    background-color: #25d2df;
+    color: #333;
+}
+
+header {
+    background-color: #092c06;
+    color: #fff;
+    padding: 1rem 0;
+    text-align: center;
+}
+
+nav {
+    background-color: #555;
+    padding: 0.5rem 0;
+    text-align: center;
+}
+
+nav a {
+    color: #b11111;
+    text-decoration: none;
+    padding: 0.8rem 1.5rem;
+    display: inline-block;
+}
+
+nav a:hover {
+    background-color: #dd1010;
+}
+
+.container {
+    max-width: 1200px; /* Ancho máximo del contenedor */
+    margin: 20px auto; /* Centra el contenedor y le da margen */
+    padding: 0 20px;
+    display: flex; /* Habilita Flexbox para las columnas */
+    flex-wrap: wrap; /* Permite que las columnas se envuelvan a la siguiente línea */
+    gap: 20px; /* Espacio entre las columnas */
+}
+
+.column {
+    flex: 1; /* Permite que las columnas crezcan y se encojan */
+    min-width: 300px; /* Ancho mínimo antes de que se apilen */
+    background-color: #14df79;
+    padding: 20px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+img {
+    max-width: 100%; /* Las imágenes nunca superarán el ancho de su contenedor */
+    height: auto; /* Mantiene la proporción de la imagen */
+    display: block; /* Elimina espacio extra debajo de la imagen */
+    margin-top: 15px;
+}
+
+footer {
+    background-color: #333;
+    color: #fff;
+    text-align: center;
+    padding: 1rem 0;
+    margin-top: 20px;
+}
+
+/* Media Queries para responsividad */
+@media (max-width: 768px) {
+    nav a {
+        display: block; /* En pantallas pequeñas, los enlaces de navegación se apilan */
+        border-bottom: 1px solid #d60a0a;
+    }
+
+    .container {
+        flex-direction: column; /* Apila las columnas verticalmente */
+    }
+
+    .column {
+        min-width: unset; /* Elimina el ancho mínimo para que ocupen todo el ancho disponible */
+    }
+}
+
+@media (max-width: 1100px) {
+    header h1 {
+        font-size: 1.5rem;
+    }
+
+    nav a {
+        padding: 0.6rem 1rem;
+    }
+
+    .container {
+        padding: 0 10px;
+    }
+
+    .column {
+        padding: 15px;
+    }
+}
+card {
+    background-color: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
